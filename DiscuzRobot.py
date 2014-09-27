@@ -6,6 +6,7 @@
 import requests
 import logging
 import time
+import re
 from lxml import html
 
 
@@ -14,6 +15,10 @@ logging.basicConfig(format=FORMAT, level=logging.INFO)
 
 
 class LoginError(BaseException):
+    pass
+
+
+class ParseError(BaseException):
     pass
 
 
@@ -61,7 +66,7 @@ class DiscuzRobot:
         '''get the formhash to verify'''
         forum_url = self.forum_url + 'forum.php'
         resp = self.session.get(forum_url)
-        formhash_xpath = '//*[@id="scbar_form"]/input[@name="formhash"]'
+        formhash_xpath = r'//*[@id="scbar_form"]/input[@name="formhash"]'
         doc = html.document_fromstring(resp.content)
         formhash_input = doc.xpath(formhash_xpath)
         if formhash_xpath:
@@ -118,3 +123,41 @@ class DiscuzRobot:
         else:
             logging.warning('%s - publish failed' % self.username)
             print resp.text
+
+    def get_fid(self):
+        fid_url = self.forum_url + 'forum.php'
+        resp = self.session.get(fid_url)
+        resp.encoding = 'utf8'
+        scheme = r'<a href="forum\.php\?mod=forumdisplay&fid=(\d+)">([^<]+)</a>'
+        m = re.findall(scheme, resp.text)
+        if m:
+            logging.info('%s - get all fid and name' % self.username)
+            result = [{'fid': i[0], 'name': i[1]} for i in m]
+            return result
+        else:
+            logging.warning('%s - get fid failed' % self.username)
+            raise ParseError
+
+    def get_tid(self, fid):
+        tid_url = self.forum_url + 'forum.php?mod=forumdisplay&fid=' + str(fid)
+        resp = self.session.get(tid_url)
+        resp.encoding = 'utf8'
+        scheme = r'<a href="forum\.php\?mod=viewthread&amp;tid=(\d+)&amp;extra=page%3D1" onclick="atarget\(this\)" class="s xst">([^<]+)</a>'
+        m = re.findall(scheme, resp.text)
+        if m:
+            logging.info('%s - get all tid and name' % self.username)
+            result = [{'tid': i[0], 'name': i[1]} for i in m]
+            return result
+        else:
+            logging.warning('%s - get tid failed' % self.username)
+            raise ParseError
+
+    def get_message(self, tid):
+        message_url = self.forum_url + 'forum.php?mod=viewthread&tid=' + str(tid)
+        resp = self.session.get(message_url)
+        resp.encoding = 'utf8'
+        doc = html.document_fromstring(resp.text)
+        xpath = '//*[@class="t_f"]'
+        message_td = doc.xpath(xpath)[0]
+        message = message_td.text_content()
+        return message
